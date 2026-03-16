@@ -13,8 +13,12 @@ Usage:
     python plot_umap.py --rep_dir representations --out_dir figures
 
     # Also run diffusion decoder to generate 3D structures:
-    python plot_umap.py --rep_dir representations --out_dir figures \
+    python plot_umap.py --rep_dir representations --out_dir figures_boltz1 \
         --wts_path /Users/joycemo/Documents/GitHub/boltz/boltz1_conf.ckpt --device mps
+
+    python plot_umap.py --rep_dir representations --out_dir figures_boltz2 \
+        --wts_path /Users/joycemo/Documents/GitHub/boltz/boltz2_conf.ckpt --device mps
+
 
     # Also run MDS 3D reconstruction from pair reps:
     python plot_umap.py --rep_dir representations --out_dir figures --mds
