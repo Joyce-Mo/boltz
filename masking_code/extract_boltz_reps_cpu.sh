@@ -1,7 +1,8 @@
 #!/bin/bash
 #$ -S /bin/bash
 #$ -cwd
-#$ -j y
+#$ -o logs/$JOB_ID.o
+#$ -e logs/$JOB_ID.e
 #$ -l mem_free=48G
 #$ -l scratch=2G
 #$ -l h_rt=48:00:00
@@ -9,6 +10,8 @@
 #$ -m bea
 #$ -M joyce.mo@ucsf.edu
 
+export PYTHONUNBUFFERED=1
+mkdir -p logs
 date
 hostname
 
