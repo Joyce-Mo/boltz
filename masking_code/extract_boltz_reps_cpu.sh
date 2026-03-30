@@ -10,6 +10,7 @@
 #$ -m bea
 #$ -M joyce.mo@ucsf.edu
 
+set -euo pipefail
 export PYTHONUNBUFFERED=1
 mkdir -p logs
 date
@@ -60,5 +61,18 @@ python "${REPO_ROOT}/masking_code/extract_cath_reps.py" \
     --recycling_steps 0 \
     --device cpu
 
-# ---------- end-of-job ----------
-[[ -n "$JOB_ID" ]] && qstat -j "$JOB_ID"
+# ---------- check completion & resubmit if needed ----------
+SAVE_DIR="${OUTPUT_BASE}/boltz2"
+TOTAL_PDBS=$(find "${PDB_DIR}" -name '*.pdb' | wc -l)
+DONE=$(find "${SAVE_DIR}" -name '*_s.pt' | wc -l)
+echo "Completed ${DONE}/${TOTAL_PDBS} domains"
+
+if [ "${DONE}" -lt "${TOTAL_PDBS}" ]; then
+    echo "Not all domains processed — resubmitting job"
+    SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+    qsub "${SCRIPT_PATH}"
+else
+    echo "All domains processed — done!"
+fi
+
+[[ -n "${JOB_ID:-}" ]] && qstat -j "$JOB_ID"
