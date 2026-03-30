@@ -1,8 +1,8 @@
 #!/bin/bash
 #$ -S /bin/bash
 #$ -cwd
-#$ -o logs/extract_boltz_reps_$JOB_ID.o
-#$ -e logs/extract_boltz_reps_$JOB_ID.e
+#$ -o logs/extract_boltz_reps_$JOB_ID_03302026.out
+#$ -e logs/extract_boltz_reps_$JOB_ID_03302026.err
 #$ -l mem_free=48G
 #$ -l scratch=2G
 #$ -l h_rt=96:00:00
@@ -15,8 +15,7 @@ hostname
 
 # ---------- modules ----------
 if command -v module >/dev/null 2>&1; then
-    module load gcc/12.4.0
-    module load cuda
+    module load CBI miniforge3
 fi
 
 # ---------- environment ----------
@@ -27,7 +26,7 @@ else
 fi
 
 # paths 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="/wynton/home/rotation/jqmo/rotation3/boltz"
 
 # Directory of CATH-20 PDB files
 PDB_DIR="/wynton/home/rotation/jqmo/rotation3/datasets/cath20-filtered-foldseek"
