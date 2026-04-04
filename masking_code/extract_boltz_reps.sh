@@ -11,6 +11,9 @@
 #$ -m bea
 #$ -M jqmo@berkeley.edu
 
+set -euo pipefail
+export PYTHONUNBUFFERED=1
+
 date
 hostname
 
