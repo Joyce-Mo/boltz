@@ -2,10 +2,10 @@
 #$ -S /bin/bash
 #$ -cwd
 #$ -N extract_boltz2_reps_04032026
-#$ -o logs/extract_boltz2_reps_${JOB_ID}_04032026.out
-#$ -e logs/extract_boltz2_reps_${JOB_ID}_04032026.err
-#$ -l mem_free=48G
-#$ -l scratch=2G
+#$ -o logs/extract_boltz2_reps_$JOB_ID_04032026.out
+#$ -e logs/extract_boltz2_reps_$JOB_ID_04032026.err
+#$ -l mem_free=128G
+#$ -l scratch=10G
 #$ -l h_rt=96:00:00
 #$ -r y
 #$ -m bea
