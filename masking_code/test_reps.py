@@ -1,4 +1,4 @@
-"""Extract single (s) and pair (z) representations from Boltz-1 for a set of proteins.
+"""Extract single (s) and pair (z) representations from Boltz-1 or Boltz-2.
 
 Computes trunk representations with 0 recycles (no MSA needed for small, well-folded
 proteins) and saves them as PyTorch tensors with systematic names.
@@ -9,21 +9,36 @@ Target proteins:
   - 2LV8: De novo Rossmann fold
 
 Usage:
- python test_reps.py --wts_path /Users/joycemo/Documents/GitHub/boltz/boltz1_conf.ckpt --device mps
+ # Boltz-1
+ python test_reps.py --model_version boltz1 \
+     --wts_path /Users/joycemo/Documents/GitHub/boltz/boltz1_conf.ckpt --device mps
 
+ # Boltz-2
+ python test_reps.py --model_version boltz2 \
+     --wts_path /Users/joycemo/Documents/GitHub/boltz/boltz2_conf.ckpt --device mps
  """
 
-import os
-import sys
 import argparse
 import shutil
-import tempfile
 from pathlib import Path
 
 import torch
 
-# Assumes running from masking_code/ directory
-import diffusion_stepper as ds
+
+def get_stepper_module(model_version: str):
+    """Import the correct diffusion_stepper module for boltz1 or boltz2.
+
+    Both modules expose the same surface (DiffusionStepper, PredictArgs).
+    The boltz2 stepper handles the PairformerArgsV2 / Boltz2InferenceDataModule
+    overrides needed to load the public Boltz-2 checkpoint.
+    """
+    if model_version == "boltz1":
+        import diffusion_stepper as ds
+    elif model_version == "boltz2":
+        import diffusion_stepper_boltz2 as ds
+    else:
+        raise ValueError(f"Unknown model version: {model_version}. Use 'boltz1' or 'boltz2'.")
+    return ds
 
 
 # ---- Protein sequences (extracted from PDB files) ---- #
@@ -104,6 +119,7 @@ def make_yaml_input(name: str, chain_sequences: dict[str, str], out_dir: Path) -
 
 
 def run_extraction(
+    model_version: str,
     pdb_dir: Path,
     wts_path: Path,
     save_dir: Path,
@@ -115,10 +131,12 @@ def run_extraction(
 
     Parameters
     ----------
+    model_version : str
+        'boltz1' or 'boltz2'. Selects which diffusion_stepper module to import.
     pdb_dir : Path
         Directory containing source PDB files.
     wts_path : Path
-        Path to boltz1_conf.ckpt.
+        Path to the model checkpoint (boltz1_conf.ckpt or boltz2_conf.ckpt).
     save_dir : Path
         Directory to save representation tensors.
     device : str
@@ -128,6 +146,7 @@ def run_extraction(
     use_msa_server : bool
         Whether to query MSA server. False for small well-folded proteins.
     """
+    ds = get_stepper_module(model_version)
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -187,8 +206,9 @@ def run_extraction(
         batch = stepper.prepare_feats_from_datamodule_batch()
         stepper.compute_representations(batch, recycling_steps=recycling_steps)
 
-        # Save with systematic name
-        tag = f"{name}_{recycling_steps}recycles"
+        # Save with systematic name (model_version included so boltz1/boltz2
+        # outputs don't overwrite each other when sharing a save_dir)
+        tag = f"{name}_{model_version}_{recycling_steps}recycles"
         if use_msa_server:
             tag += "_msa"
         else:
@@ -212,7 +232,14 @@ def run_extraction(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract Boltz-1 trunk representations")
+    parser = argparse.ArgumentParser(description="Extract Boltz trunk representations")
+    parser.add_argument(
+        "--model_version",
+        type=str,
+        default="boltz1",
+        choices=["boltz1", "boltz2"],
+        help="Which model to use: boltz1 or boltz2",
+    )
     parser.add_argument(
         "--pdb_dir",
         type=str,
@@ -223,7 +250,7 @@ def main():
         "--wts_path",
         type=str,
         default="/Users/joycemo/Documents/GitHub/boltz/boltz1_conf.ckpt",
-        help="Path to Boltz-1 checkpoint",
+        help="Path to model checkpoint (.ckpt). Should match --model_version.",
     )
     parser.add_argument(
         "--save_dir",
@@ -252,6 +279,7 @@ def main():
     args = parser.parse_args()
 
     run_extraction(
+        model_version=args.model_version,
         pdb_dir=Path(args.pdb_dir),
         wts_path=Path(args.wts_path).expanduser(),
         save_dir=Path(args.save_dir),

@@ -12,14 +12,19 @@ from math import sqrt
 from pathlib import Path
 from dataclasses import asdict
 from boltz.model.models.boltz2 import Boltz2 # joyce edited to boltz.model.models, not model
-from boltz.main import BoltzDiffusionParams
+from boltz.main import (
+    Boltz2DiffusionParams,
+    PairformerArgsV2,
+    MSAModuleArgs,
+    BoltzSteeringParams,
+)
 from boltz.model.modules.utils import default, center_random_augmentation
 from boltz.model.loss.diffusion import weighted_rigid_align
 from dataclasses import asdict, dataclass
 
 #from adp3d.utils.utility import try_gpu
 from boltz.main import check_inputs, process_inputs, BoltzProcessedInput
-from boltz.data.module.inference import BoltzInferenceDataModule
+from boltz.data.module.inferencev2 import Boltz2InferenceDataModule
 from boltz.data.types import Manifest, Structure
 from boltz.data.pad import pad_dim # joyce edited to correct import paths 
 import numpy as np
@@ -217,7 +222,7 @@ class DiffusionStepper:
         model: Optional[Boltz2] = None,
         use_msa_server: bool = True,
         predict_args: PredictArgs = PredictArgs(),
-        diffusion_args: BoltzDiffusionParams = BoltzDiffusionParams(),
+        diffusion_args: Boltz2DiffusionParams = Boltz2DiffusionParams(),
         device: Optional[torch.device] = None,
         pair_rep_func = None,
         single_rep_func = None,
@@ -258,6 +263,22 @@ class DiffusionStepper:
         if model is not None:
             self.model = model.to(self.device).eval()
         else:
+            # Match boltz CLI's Boltz2 inference setup: must override the
+            # checkpoint's saved hyperparameters because the public Boltz2
+            # checkpoint was trained with PairformerArgsV2 (v2=True, 64 blocks),
+            # MSA pairing, and steering disabled. Without these overrides
+            # load_from_checkpoint constructs the v1-style PairformerLayer and
+            # crashes with "Missing key(s) ... attention.norm_s.weight".
+            pairformer_args = PairformerArgsV2()
+            msa_args = MSAModuleArgs(
+                subsample_msa=False,
+                num_subsampled_msa=1024,
+                use_paired_feature=True,
+            )
+            steering_args = BoltzSteeringParams()
+            steering_args.fk_steering = False
+            steering_args.physical_guidance_update = False
+            steering_args.contact_guidance_update = False
             self.model = (
                 Boltz2.load_from_checkpoint(
                     checkpoint_path,
@@ -266,6 +287,9 @@ class DiffusionStepper:
                     map_location="cpu",
                     diffusion_process_args=asdict(diffusion_args),
                     ema=False,
+                    pairformer_args=asdict(pairformer_args),
+                    msa_args=asdict(msa_args),
+                    steering_args=asdict(steering_args),
                 )
                 .to(self.device)
                 .eval()
@@ -284,8 +308,8 @@ class DiffusionStepper:
         data_path: Union[str, Path],
         out_dir: Union[str, Path],
         use_msa_server: bool = True,
-    ) -> BoltzInferenceDataModule:
-        """Get BoltzInferenceDataModule set up so the stepper can run on a batch.
+    ) -> Boltz2InferenceDataModule:
+        """Get Boltz2InferenceDataModule set up so the stepper can run on a batch.
 
         Parameters
         ----------
@@ -294,23 +318,25 @@ class DiffusionStepper:
 
         Returns
         -------
-        BoltzInferenceDataModule
+        Boltz2InferenceDataModule
             Data module containing processed inputs.
         """
         input_path = Path(data_path) if isinstance(data_path, str) else data_path
         input_path = input_path.expanduser().resolve()
         ccd_path = self.cache_path / "ccd.pkl"
+        mol_dir = self.cache_path / "mols"
         data = check_inputs(input_path) # changed to just input_path (not output)
-        # boltz main.py checkputs just takes 1 arg 
+        # boltz main.py checkputs just takes 1 arg
 
         process_inputs(
             data=data,
             out_dir=out_dir,
             ccd_path=ccd_path,
-            mol_dir=self.cache_path / "mols",
+            mol_dir=mol_dir,
             use_msa_server=use_msa_server,
             msa_server_url="https://api.colabfold.com",  # NOTE: this requires internet access on cluster
             msa_pairing_strategy="greedy",
+            boltz2=True,
         )
 
         # Load processed data
@@ -321,13 +347,16 @@ class DiffusionStepper:
             msa_dir=processed_dir / "msa",
         )
 
-        # Create data module 
-        # TODO: set this up so batched will work with later functions? This will require getting density maps into the schema I think
-        data_module = BoltzInferenceDataModule(
+        # Create Boltz2 data module
+        data_module = Boltz2InferenceDataModule(
             manifest=processed.manifest,
             target_dir=processed.targets_dir,
             msa_dir=processed.msa_dir,
+            mol_dir=mol_dir,
             num_workers=2,  # NOTE: default in Boltz2
+            constraints_dir=processed_dir / "constraints" if (processed_dir / "constraints").exists() else None,
+            template_dir=processed_dir / "templates" if (processed_dir / "templates").exists() else None,
+            extra_mols_dir=processed_dir / "mols" if (processed_dir / "mols").exists() else None,
         )
 
         self.data_module = data_module
@@ -380,6 +409,10 @@ class DiffusionStepper:
             relative_position_encoding = self.model.rel_pos(feats)
             z_init = z_init + relative_position_encoding
             z_init = z_init + self.model.token_bonds(feats["token_bonds"].float())
+            if getattr(self.model, "bond_type_feature", False):
+                z_init = z_init + self.model.token_bonds_type(feats["type_bonds"].long())
+            # Boltz2 always has contact_conditioning
+            z_init = z_init + self.model.contact_conditioning(feats)
 
             # Initialize tensors for recycling
             s = torch.zeros_like(s_init)
@@ -389,16 +422,30 @@ class DiffusionStepper:
             mask = feats["token_pad_mask"].float()
             pair_mask = mask[:, :, None] * mask[:, None, :]
 
+            # Resolve compiled-vs-eager submodules
+            msa_module = self.model.msa_module
+            if getattr(self.model, "is_msa_compiled", False):
+                msa_module = msa_module._orig_mod  # noqa: SLF001
+            pairformer_module = self.model.pairformer_module
+            if getattr(self.model, "is_pairformer_compiled", False):
+                pairformer_module = pairformer_module._orig_mod  # noqa: SLF001
+            use_kernels = getattr(self.model, "use_kernels", False)
+
             # Recycling iterations
-            for i in range(recycling_steps + 1):
+            for _ in range(recycling_steps + 1):
                 s = s_init + self.model.s_recycle(self.model.s_norm(s))
                 z = z_init + self.model.z_recycle(self.model.z_norm(z))
 
-                if not self.model.no_msa:
-                    z = z + self.model.msa_module(z, s_inputs, feats)
+                if getattr(self.model, "use_templates", False):
+                    template_module = self.model.template_module
+                    if getattr(self.model, "is_template_compiled", False):
+                        template_module = template_module._orig_mod  # noqa: SLF001
+                    z = z + template_module(z, feats, pair_mask, use_kernels=use_kernels)
 
-                s, z = self.model.pairformer_module(
-                    s, z, mask=mask, pair_mask=pair_mask
+                z = z + msa_module(z, s_inputs, feats, use_kernels=use_kernels)
+
+                s, z = pairformer_module(
+                    s, z, mask=mask, pair_mask=pair_mask, use_kernels=use_kernels,
                 )
 
             if self.pair_rep_func is not None:
