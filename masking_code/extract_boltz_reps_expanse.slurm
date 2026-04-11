@@ -22,21 +22,20 @@ date
 hostname
 nvidia-smi
 
-## Load modules — match the toolchain used by the pixi `boltz` env (cu126).
+## Load modules
 module purge
 module load gpu/0.15.4
-module load gcc/10.2.0
-module load cuda/12.2.1
+module load gcc/7.2.0
+module load cuda/11.0.2
 
-## ---------------- paths ----------------
+## paths
 REPO_ROOT="/expanse/lustre/scratch/jmo/temp_project/boltz"
 PDB_DIR="/expanse/lustre/scratch/jmo/temp_project/datasets/cath20-filtered-foldseek"
 OUTPUT_BASE="/expanse/lustre/scratch/jmo/temp_project/boltz2_embeddings"
 
-
-## Boltz expects ckpt + ccd.pkl + mols/ to live in the same `cache` directory.
-CACHE_DIR="${REPO_ROOT}"
-BOLTZ2_CKPT="${CACHE_DIR}/boltz2_conf.ckpt"
+## Boltz resolves ccd.pkl and mols/ relative to the checkpoint's parent dir,
+## so keep boltz2_conf.ckpt, ccd.pkl, and mols/ in REPO_ROOT.
+BOLTZ2_CKPT="${REPO_ROOT}/boltz2_conf.ckpt"
 
 mkdir -p "${OUTPUT_BASE}/boltz2" logs
 
@@ -56,20 +55,6 @@ export PYTORCH_KERNEL_CACHE_PATH="${REPO_ROOT}/.torch_kernel_cache"
 mkdir -p "$TORCH_EXTENSIONS_DIR" "$PYTORCH_KERNEL_CACHE_PATH"
 
 pixi run -e boltz python -c "import boltz, torch; print('boltz', boltz.__file__); print('torch', torch.__version__); print('cuda available', torch.cuda.is_available())"
-
-## ---------------- ensure ccd.pkl + mols/ are present ----------------
-## download_boltz2() can time out on this cluster, so fetch mols.tar directly
-## from HuggingFace if it's missing.
-MOLS_DIR="${CACHE_DIR}/mols"
-if [ ! -d "$MOLS_DIR" ] || [ -z "$(ls -A "$MOLS_DIR" 2>/dev/null || true)" ]; then
-    echo "mols/ not found at $MOLS_DIR — downloading mols.tar from HuggingFace"
-    curl -L --retry 5 --retry-delay 10 \
-        -o "${CACHE_DIR}/mols.tar" \
-        "https://huggingface.co/boltz-community/boltz-2/resolve/main/mols.tar"
-    tar -xf "${CACHE_DIR}/mols.tar" -C "$CACHE_DIR"
-    rm -f "${CACHE_DIR}/mols.tar"
-    echo "mols/ ready at $MOLS_DIR"
-fi
 
 ## ---------------- run boltz2 ----------------
 echo "==================== boltz2 reps ===================="
