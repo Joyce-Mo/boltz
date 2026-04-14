@@ -41,24 +41,21 @@ mkdir -p "${OUTPUT_BASE}/boltz2" logs
 
 cd "$REPO_ROOT"
 
-## ---------------- pixi env / CUDA wiring ----------------
-## Point torch.utils.cpp_extension at the pixi-provided CUDA toolkit so any
-## JIT-compiled CUDA ops use the same CUDA the boltz env's torch was built
-## against (cu126).
-PIXI_BOLTZ_PREFIX="${REPO_ROOT}/.pixi/envs/boltz"
-export CUDA_HOME="$PIXI_BOLTZ_PREFIX"
-export PATH="${PIXI_BOLTZ_PREFIX}/bin:${PATH}"
-export LD_LIBRARY_PATH="${PIXI_BOLTZ_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
-export TORCH_CUDA_ARCH_LIST="8.0"
-export TORCH_EXTENSIONS_DIR="${REPO_ROOT}/.torch_extensions/${SLURM_JOB_ID:-local}"
-export PYTORCH_KERNEL_CACHE_PATH="${REPO_ROOT}/.torch_kernel_cache"
-mkdir -p "$TORCH_EXTENSIONS_DIR" "$PYTORCH_KERNEL_CACHE_PATH"
+## ---------------- conda env ----------------
+__conda_setup="$('/expanse/lustre/scratch/jmo/temp_project/miniconda3/bin/conda' shell.bash hook 2>/dev/null)" || true
+if [ -n "${__conda_setup}" ]; then
+    eval "${__conda_setup}"
+else
+    source /expanse/lustre/scratch/jmo/temp_project/miniconda3/etc/profile.d/conda.sh
+fi
+unset __conda_setup
+conda activate boltz
 
-pixi run -e boltz python -c "import boltz, torch; print('boltz', boltz.__file__); print('torch', torch.__version__); print('cuda available', torch.cuda.is_available())"
+python -c "import boltz, torch; print('boltz', boltz.__file__); print('torch', torch.__version__); print('cuda available', torch.cuda.is_available())"
 
 ## ---------------- run boltz2 ----------------
 echo "==================== boltz2 reps ===================="
-pixi run -e boltz python "${REPO_ROOT}/masking_code/extract_cath_reps.py" \
+python "${REPO_ROOT}/masking_code/extract_cath_reps.py" \
     --model_version boltz2 \
     --checkpoint "${BOLTZ2_CKPT}" \
     --pdb_dir "${PDB_DIR}" \
@@ -70,7 +67,7 @@ FIG_BASE="${REPO_ROOT}/masking_code/figures"
 mkdir -p "${FIG_BASE}/boltz2_umap"
 
 echo "==================== boltz2 UMAPs ===================="
-pixi run -e boltz python "${REPO_ROOT}/masking_code/plot_cath_umaps.py" \
+python "${REPO_ROOT}/masking_code/plot_cath_umaps.py" \
     --rep_dir  "${OUTPUT_BASE}/boltz2" \
     --pdb_dir  "${PDB_DIR}" \
     --out_dir  "${FIG_BASE}/boltz2_umap" \
