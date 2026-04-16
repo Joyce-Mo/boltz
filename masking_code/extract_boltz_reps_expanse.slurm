@@ -1,15 +1,15 @@
 #!/bin/bash
 #SBATCH -A ucb368
+#SBATCH -p gpu-shared
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=10
-#SBATCH --gpus=a100:4
-#SBATCH --mem=128G
-#SBATCH --time=08:00:00
+#SBATCH --gpus=1
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
 #SBATCH -J extract_boltz_reps
-#SBATCH -o logs/extract_boltz_reps_%j.out
-#SBATCH -e logs/extract_boltz_reps_%j.err
-#SBATCH -p gpu
+#SBATCH -o logs/extract_boltz_reps_04152026_%j.out
+#SBATCH -e logs/extract_boltz_reps_04152026_%j.err
 #SBATCH --mail-user=jqmo@berkeley.edu
 #SBATCH --mail-type=all
 
@@ -24,13 +24,13 @@ nvidia-smi
 
 ## Load modules
 module purge
+module load cpu/0.15.4
+module load gcc/10.2.0
 module load gpu/0.15.4
-module load gcc/7.2.0
-module load cuda/11.0.2
 
 ## paths
 REPO_ROOT="/expanse/lustre/scratch/jmo/temp_project/boltz"
-PDB_DIR="/expanse/lustre/scratch/jmo/temp_project/datasets/cath20-filtered-foldseek"
+PDB_DIR="/expanse/lustre/scratch/jmo/temp_project/cath20-filtered-foldseek"
 OUTPUT_BASE="/expanse/lustre/scratch/jmo/temp_project/boltz2_embeddings"
 
 ## Boltz resolves ccd.pkl and mols/ relative to the checkpoint's parent dir,
