@@ -42,16 +42,26 @@ mkdir -p "${OUTPUT_BASE}/boltz2" logs
 cd "$REPO_ROOT"
 
 ## ---------------- conda env ----------------
-__conda_setup="$('/expanse/lustre/scratch/jmo/temp_project/miniconda3/bin/conda' shell.bash hook 2>/dev/null)" || true
-if [ -n "${__conda_setup}" ]; then
-    eval "${__conda_setup}"
-else
-    source /expanse/lustre/scratch/jmo/temp_project/miniconda3/etc/profile.d/conda.sh
-fi
-unset __conda_setup
+## On Expanse, `module load anaconda3` does not initialize conda for
+## non-interactive shells, so `conda activate` fails. The eval hook
+## runs the equivalent of `conda init bash` inline for this session.
+module load anaconda3
+eval "$(conda shell.bash hook)"
 conda activate boltz
 
 python -c "import boltz, torch; print('boltz', boltz.__file__); print('torch', torch.__version__); print('cuda available', torch.cuda.is_available())"
+
+## ---------------- ensure ccd.pkl + mols/ are present ----------------
+## Boltz2 needs mols/ extracted from mols.tar in the same dir as the ckpt.
+## This call only downloads what is missing.
+# python - <<PY
+# from pathlib import Path
+# from boltz.main import download_boltz2
+# cache = Path("${REPO_ROOT}")
+# cache.mkdir(parents=True, exist_ok=True)
+# download_boltz2(cache)
+# print("cache ready:", sorted(p.name for p in cache.iterdir()))
+# PY
 
 ## ---------------- run boltz2 ----------------
 echo "==================== boltz2 reps ===================="
