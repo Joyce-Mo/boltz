@@ -8,8 +8,8 @@
 #SBATCH --mem=64G
 #SBATCH --time=12:00:00
 #SBATCH -J extract_boltz_reps
-#SBATCH -o logs/extract_boltz_reps_04152026_%j.out
-#SBATCH -e logs/extract_boltz_reps_04152026_%j.err
+#SBATCH -o logs/boltz2_umap_04202026_%j.out
+#SBATCH -e logs/boltz2_umap_04202026_%j.err
 #SBATCH --mail-user=jqmo@berkeley.edu
 #SBATCH --mail-type=all
 
@@ -64,13 +64,37 @@ python -c "import boltz, torch; print('boltz', boltz.__file__); print('torch', t
 # PY
 
 ## ---------------- run boltz2 ----------------
-echo "==================== boltz2 reps ===================="
-python "${REPO_ROOT}/masking_code/extract_cath_reps.py" \
-    --model_version boltz2 \
-    --checkpoint "${BOLTZ2_CKPT}" \
-    --pdb_dir "${PDB_DIR}" \
-    --save_dir "${OUTPUT_BASE}/boltz2" \
-    --device cuda
+# echo "==================== boltz2 reps ===================="
+# python "${REPO_ROOT}/masking_code/extract_cath_reps.py" \
+#     --model_version boltz2 \
+#     --checkpoint "${BOLTZ2_CKPT}" \
+#     --pdb_dir "${PDB_DIR}" \
+#     --save_dir "${OUTPUT_BASE}/boltz2" \
+#     --device cuda
+
+## ---------------- merge embeddings into a single dir ----------------
+## Embeddings live in two places:
+##   1. ${OUTPUT_BASE}/          — extracted locally, then uploaded to Expanse
+##   2. ${OUTPUT_BASE}/boltz/    — extracted on Expanse via this script
+## The UMAP script needs a single --rep_dir, so we symlink everything into
+## a merged directory.  Files in (1) take precedence over (2) if duplicates exist.
+MERGED_DIR="${OUTPUT_BASE}/merged"
+mkdir -p "${MERGED_DIR}"
+
+echo "==================== merging embeddings ===================="
+# First, link Expanse-extracted embeddings (boltz/ subdir)
+if [ -d "${OUTPUT_BASE}/boltz" ]; then
+    for f in "${OUTPUT_BASE}"/boltz/*_{s,z}.pt; do
+        [ -e "$f" ] || continue
+        ln -sf "$f" "${MERGED_DIR}/$(basename "$f")"
+    done
+fi
+# Then, overlay locally-extracted embeddings (top-level dir) — overwrites dupes
+for f in "${OUTPUT_BASE}"/*_{s,z}.pt; do
+    [ -e "$f" ] || continue
+    ln -sf "$f" "${MERGED_DIR}/$(basename "$f")"
+done
+echo "Merged directory has $(ls "${MERGED_DIR}"/*_s.pt 2>/dev/null | wc -l) _s.pt and $(ls "${MERGED_DIR}"/*_z.pt 2>/dev/null | wc -l) _z.pt files"
 
 ## ---------------- UMAPs ----------------
 FIG_BASE="${REPO_ROOT}/masking_code/figures"
@@ -78,7 +102,7 @@ mkdir -p "${FIG_BASE}/boltz2_umap"
 
 echo "==================== boltz2 UMAPs ===================="
 python "${REPO_ROOT}/masking_code/plot_cath_umaps.py" \
-    --rep_dir  "${OUTPUT_BASE}/boltz2" \
+    --rep_dir  "${MERGED_DIR}" \
     --pdb_dir  "${PDB_DIR}" \
     --out_dir  "${FIG_BASE}/boltz2_umap" \
     --model_tag boltz2 \
